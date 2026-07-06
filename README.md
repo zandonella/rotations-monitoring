@@ -46,7 +46,7 @@ The Pi check needs the VPS on the same tailnet as the Pi (`100.99.1.41`). Until 
 
 ### Pi `/health` endpoint
 
-Add the route in [`pi/health_endpoint.py`](pi/health_endpoint.py) to the schedule-wake Flask app on the Pi, then set `PI_HEALTH_ENABLED=true` here.
+The schedule-wake Flask app on the Pi exposes `GET /health` returning `{"ok": true, "pending_wakes": [<ISO timestamps>]}` built from `systemctl list-timers pc-wake-*`. With that in place, set `PI_HEALTH_ENABLED=true` here.
 
 ## Restoring a backup
 
