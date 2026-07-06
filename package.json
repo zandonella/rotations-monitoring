@@ -1,0 +1,17 @@
+{
+    "name": "rotations-monitor",
+    "version": "1.0.0",
+    "description": "Watchdog, health checks, and daily database backups for rotations.lol",
+    "type": "module",
+    "scripts": {
+        "start": "node --env-file=.env src/index.ts"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@supabase/supabase-js": "^2.90.1"
+    },
+    "engines": {
+        "node": ">=22.18"
+    }
+}
