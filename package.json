@@ -4,7 +4,10 @@
     "description": "Watchdog, health checks, and daily database backups for rotations.lol",
     "type": "module",
     "scripts": {
-        "start": "node --env-file=.env src/index.ts"
+        "start": "node --env-file=.env src/index.ts",
+        "start:linux": "node --env-file=.env.linux src/linux/index.ts",
+        "check:linux:local": "node scripts/checkLocalLinux.mjs",
+        "test:linux": "node --experimental-test-module-mocks --test tests/linux*.test.ts"
     },
     "author": "",
     "license": "ISC",

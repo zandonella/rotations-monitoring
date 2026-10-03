@@ -1,5 +1,7 @@
 # rotations-monitor
 
+Linux ingestion has a [separate monitoring flow](docs/linux.md), for the existing VPS. The legacy commands documented below are unchanged.
+
 Watchdog, health checks, and daily database backups for [rotations.lol](https://rotations.lol). Runs as a single always-on container on the VPS and alerts through the existing Discord webhook.
 
 ## What it does

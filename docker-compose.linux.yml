@@ -1,0 +1,13 @@
+services:
+    monitor-linux:
+        build: .
+        container_name: rotations-monitor-linux
+        command: ["node", "src/linux/index.ts"]
+        restart: unless-stopped
+        env_file: .env.linux
+        environment:
+            HOST: 0.0.0.0
+        ports:
+            - '127.0.0.1:8081:8080'
+        volumes:
+            - ./data-linux:/app/data-linux

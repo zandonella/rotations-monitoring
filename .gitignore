@@ -1,3 +1,5 @@
 node_modules/
 .env
+.env.linux
 data/
+data-linux/
