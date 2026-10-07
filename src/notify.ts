@@ -44,7 +44,7 @@ async function sendMessage(
         return;
     }
 
-    // Only ping the role on ERROR; degradation warnings stay quiet.
+    // Only errors ping the configured staff role.
     const roleId = process.env.DISCORD_MENTION_ROLE_ID?.trim() || undefined;
     const mentionRoleId = roleId && level === 'ERROR' ? roleId : undefined;
     const content = mentionRoleId ? `<@&${mentionRoleId}>` : undefined;
@@ -58,9 +58,10 @@ async function sendMessage(
             content,
             allowed_mentions: mentionRoleId
                 ? {
+                      parse: [],
                       roles: [mentionRoleId],
                   }
-                : undefined,
+                : { parse: [] },
             embeds: [
                 {
                     title: `${level}: ${title}`,
