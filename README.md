@@ -2,13 +2,13 @@
 
 Linux ingestion has a [separate monitoring flow](docs/linux.md), for the existing VPS. The legacy commands documented below are unchanged.
 
-Watchdog, health checks, and daily database backups for [rotations.lol](https://rotations.lol). Runs as a single always-on container on the VPS and alerts through the existing Discord webhook. Only errors mention the staff role; warnings and recovery messages never mention it. Alerts are sent only when check status changes.
+Watchdog, health checks, and daily database backups for [rotations.lol](https://rotations.lol). Runs as a single always-on container on the VPS and alerts through the existing Discord webhook. Notifications are sent only when check status changes; only errors mention `DISCORD_MENTION_ROLE_ID`; warnings and recovery notifications do not mention the role.
 
 ## What it does
 
 | Check | Cadence | Alert |
 |---|---|---|
-| **Daily update watchdog** — reads the `ingestion_heartbeat` row written by `processClientData.ts` | 60s | `next_expected_at` + 5 min late → yellow warn; + 20 min → red error with role ping |
+| **Daily update watchdog** — reads the `ingestion_heartbeat` row written by `processClientData.ts` | 60s | `next_expected_at` + 5 min late → yellow warn with role ping; + 20 min → red error with role ping |
 | **Site uptime** — `GET SITE_URL` | 5 min | 3 consecutive failures → red error with role ping |
 | **Data freshness** — active rows in `CatalogSale` / `MythicSale` | 5 min | 2 consecutive empty reads → warn ("Sale ended" banner is showing) |
 | **Pi WOL scheduler** — `GET http://WOL_API_IP:3000/health` over Tailscale, cross-checks a wake timer covers `next_expected_at` | 5 min | 3 consecutive failures or missing wake timer → warn |

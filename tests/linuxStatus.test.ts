@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { heartbeatStatus, runnerStatus } from '../src/linux/ingestionStatus.ts';
+import { heartbeatStatus, runnerStatus, emailStatus } from '../src/linux/ingestionStatus.ts';
 
 const policy = { pollMinutes: 30, degradedAfterMin: 5, errorAfterMin: 20 };
 const now = Date.parse('2026-10-02T12:32:00Z');
@@ -38,4 +38,14 @@ test('runner failures before processing are visible and recovery waits for succe
     assert.equal(runnerStatus(run, policy, now + 35 * 60_000).status, 'warn');
     assert.equal(runnerStatus(run, policy, now + 50 * 60_000).status, 'error');
     assert.equal(runnerStatus({ ...run, updatedAt: 'invalid' }, policy, now).status, 'error');
+});
+
+test('hourly polling and independent email failures use the completed ingestion deadline',()=>{
+ const now=Date.parse('2026-10-07T13:07:00Z');
+ const hourly={pollMinutes:60,degradedAfterMin:5,errorAfterMin:20};
+ assert.equal(heartbeatStatus({...row,last_run_at:'2026-10-07T12:02:00Z',next_expected_at:'2026-10-07T13:01:00Z'},hourly,now).status,'warn');
+ assert.equal(emailStatus({status:'ok',updated_at:'2026-10-07T12:03:00Z'},'2026-10-07T13:01:30Z',now).status,'warn');
+ assert.equal(emailStatus({status:'error',updated_at:'2026-10-07T13:03:00Z'},null,now).status,'error');
+ assert.equal(emailStatus({status:'ok',updated_at:'2026-10-07T13:03:00Z'},'2026-10-07T13:02:00Z',now).status,'ok');
+ assert.equal(emailStatus({status:'running',updated_at:'2026-10-07T12:30:00Z'},null,now).status,'error');
 });

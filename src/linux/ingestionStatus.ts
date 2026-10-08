@@ -10,7 +10,7 @@ export function heartbeatStatus(row: HeartbeatRow | null, policy: Policy, now = 
     if (!Number.isFinite(last) || !Number.isFinite(expected) || last > now + 60_000 || expected <= last) {
         return { status: 'error', detail: 'Linux ingestion heartbeat has invalid timestamps.' };
     }
-    // A leftover daily heartbeat must not hide missed half-hour collections.
+    // A leftover daily heartbeat must not hide missed hourly collections.
     const deadline = Math.min(expected, last + policy.pollMinutes * 60_000);
     const lateMin = (now - deadline) / 60_000;
     const context = `Last run ${row.last_run_at}; expected by ${new Date(deadline).toISOString()}.`;
@@ -49,4 +49,21 @@ export function runnerStatus(value: unknown, policy: Policy, now = Date.now()): 
     if (lateMin > policy.errorAfterMin) return { status: 'error', detail: 'Linux runner has stopped updating; check that the timer is active.' };
     if (lateMin > policy.degradedAfterMin) return { status: 'warn', detail: 'Linux runner is overdue; check the collection timer.' };
     return { status: 'ok', detail: `Linux runner completed successfully at ${row.updatedAt}.` };
+}
+
+export function emailStatus(value: unknown, lastIngestionAt: string | null, now = Date.now()): CheckResult {
+    if (!value || typeof value !== 'object') return { status: 'warn', detail: 'No hourly email status yet.' };
+    const row = value as Record<string, unknown>;
+    const updated = typeof row.updated_at === 'string' ? Date.parse(row.updated_at) : NaN;
+    const ingested = lastIngestionAt ? Date.parse(lastIngestionAt) : NaN;
+    if (!Number.isFinite(updated) || updated > now + 60_000) return { status: 'error', detail: 'Invalid hourly email status timestamp.' };
+    if (row.status === 'error') return { status: 'error', detail: 'Hourly email batch failed; inspect delivery logs before retrying.' };
+    if (row.status === 'running') return now - updated > 25 * 60_000
+        ? { status: 'error', detail: 'Hourly email batch exceeded its 25-minute limit.' }
+        : { status: 'ok', detail: 'Hourly email batch running.' };
+    if (row.status !== 'ok') return { status: 'error', detail: 'Unknown hourly email status.' };
+    if (Number.isFinite(ingested) && ingested > updated && now - ingested > 5 * 60_000) {
+        return { status: 'warn', detail: 'Successful ingestion has not been followed by an email batch.' };
+    }
+    return { status: 'ok', detail: `Hourly email batch completed at ${row.updated_at}.` };
 }

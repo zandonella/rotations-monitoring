@@ -9,7 +9,7 @@ unchanged for the legacy Windows/Pi flow. Linux monitoring uses separate files.
 
 ```text
 Ingestion host                         Shared Supabase                 VPS
-half-hour Linux runner  ------------> linux_ingestion_status <-------- Linux monitor
+hourly Linux runner  ------------> linux_ingestion_status <-------- Linux monitor
 Linux data processor    ------------> ingestion_heartbeat   <-------- Linux monitor
                                                                site/data checks
                                                                Discord + backups
@@ -23,7 +23,7 @@ The Linux monitor checks:
 
 - Processing heartbeat every 60 seconds. Warn at more than 5 minutes past the
   expected poll; error at more than 20 minutes. The deadline is capped at
-  30 minutes after the last run so a leftover daily deadline cannot hide failure.
+  60 minutes after the last run so a leftover daily deadline cannot hide failure.
 - Heartbeat `warn`/`error` immediately, even before its next expected deadline.
 - `linux_ingestion_status` every 60 seconds for exhausted retries, interrupted
   jobs, or a running attempt older than 12 minutes. Recovery requires successful
@@ -82,9 +82,15 @@ status migration, including after a reset.
 
 The previously installed `rotations-lab-monitor.service` has been stopped and
 disabled. Its installer and unit have been removed from this branch. The
-half-hour ingestion timer and Riot Client service remain active.
+hourly ingestion timer and Riot Client service remain active.
 
 For the coordinated production cutover, follow the ingestion repository’s
 `docs/linux-production.md`. Pull both repositories after their Linux branches
 are merged into main; stop the old compose service before starting this one.
 The new host port is 8081, so update any existing health-check proxy accordingly.
+
+The hourly production flow runs at `:01` and uses
+`LINUX_POLL_INTERVAL_MINUTES=60`. The `emails` check reads private
+`linux_email_status` and the latest processing heartbeat. It reports failed or
+stuck email batches separately and warns if successful ingestion has no following
+email completion after five minutes. Apply the backend email migration first.

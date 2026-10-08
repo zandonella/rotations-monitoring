@@ -2,7 +2,7 @@ import http from 'node:http';
 import { config } from '../config.ts';
 import { sendAlert } from '../notify.ts';
 import type { CheckResult } from '../state.ts';
-import { checkLinuxHeartbeat, checkLinuxRunner } from './checks.ts';
+import { checkLinuxHeartbeat, checkLinuxRunner, checkLinuxEmails } from './checks.ts';
 import { checkSiteUp } from '../checks/siteUp.ts';
 import { checkFreshness } from '../checks/freshness.ts';
 import { runBackup, msUntilNextBackup } from '../backup.ts';
@@ -89,6 +89,7 @@ function startStatusServer() {
 
 async function runWatchdog() {
     await runCheck('heartbeat', 'Linux ingestion watchdog', checkLinuxHeartbeat);
+    await runCheck('emails', 'Hourly wishlist emails', checkLinuxEmails);
     await runCheck('linuxRunner', 'Linux collection runner', checkLinuxRunner);
 }
 

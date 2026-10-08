@@ -1,9 +1,9 @@
 import { config } from '../config.ts';
 import { supabase } from '../supabase.ts';
-import { heartbeatStatus, runnerStatus } from './ingestionStatus.ts';
+import { heartbeatStatus, runnerStatus, emailStatus } from './ingestionStatus.ts';
 import type { CheckResult } from '../state.ts';
 
-const pollMinutes = Number(process.env.LINUX_POLL_INTERVAL_MINUTES || 30);
+const pollMinutes = Number(process.env.LINUX_POLL_INTERVAL_MINUTES || 60);
 if (!Number.isSafeInteger(pollMinutes) || pollMinutes < 1 || pollMinutes > 60 || 60 % pollMinutes !== 0) {
     throw new Error('LINUX_POLL_INTERVAL_MINUTES must be a positive divisor of 60.');
 }
@@ -26,4 +26,13 @@ export async function checkLinuxRunner(): Promise<CheckResult> {
     return runnerStatus({
         status: data.status, attempt: data.attempt, updatedAt: data.updated_at, lastResult: data.last_result,
     }, policy);
+}
+
+export async function checkLinuxEmails(): Promise<CheckResult> {
+    const results = await Promise.all([
+        supabase.from('linux_email_status').select('status,updated_at').eq('runner_id', 'direct').maybeSingle().abortSignal(AbortSignal.timeout(10_000)),
+        supabase.from('ingestion_heartbeat').select('last_run_at').eq('script_name', 'processClientData').maybeSingle().abortSignal(AbortSignal.timeout(10_000)),
+    ]);
+    if (results.some(result => result.error)) return { status: 'warn', detail: 'Cannot read hourly email status.' };
+    return emailStatus(results[0].data, results[1].data?.last_run_at ?? null);
 }
