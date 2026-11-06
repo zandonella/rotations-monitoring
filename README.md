@@ -1,69 +1,47 @@
-# rotations-monitor
+# Rotations.lol monitoring
 
-Linux ingestion has a [separate monitoring flow](docs/linux.md), for the existing VPS. The legacy commands documented below are unchanged.
+Checks [Rotations.lol](https://rotations.lol) service health, ingestion, and data freshness, takes database backups, and sends Discord alerts when check status changes.
 
-Watchdog, health checks, and daily database backups for [rotations.lol](https://rotations.lol). Runs as a single always-on container on the VPS and alerts through the existing Discord webhook. Notifications are sent only when check status changes; only errors mention `DISCORD_MENTION_ROLE_ID`; warnings and recovery notifications do not mention the role.
+## Monitoring modes
 
-## What it does
-
-| Check | Cadence | Alert |
+| Mode | Watches | Setup |
 |---|---|---|
-| **Daily update watchdog** — reads the `ingestion_heartbeat` row written by `processClientData.ts` | 60s | `next_expected_at` + 5 min late → yellow warn with role ping; + 20 min → red error with role ping |
-| **Site uptime** — `GET SITE_URL` | 5 min | 3 consecutive failures → red error with role ping |
-| **Data freshness** — active rows in `CatalogSale` / `MythicSale` | 5 min | 2 consecutive empty reads → warn ("Sale ended" banner is showing) |
-| **Pi WOL scheduler** — `GET http://WOL_API_IP:3000/health` over Tailscale, cross-checks a wake timer covers `next_expected_at` | 5 min | 3 consecutive failures or missing wake timer → warn |
-| **Daily backup** — `pg_dump` schema + data dumps of `public,auth,storage` to `data/backups/`, pruned after `BACKUP_RETENTION_DAYS` | daily at `BACKUP_AT_UTC` | failure → warn |
+| Linux ingestion | Linux ingestion and email status, site uptime, data freshness, and daily backups. | [Linux monitoring guide](docs/linux.md) |
+| Windows ingestion | The ingestion heartbeat, site uptime, data freshness, the optional wake scheduler, and daily backups. | [Windows monitoring and backup guide](docs/operations.md) |
 
-Every alert fires once per state change; a recovery message is sent when a check returns to OK. Alert state persists in `data/state.json`, so container restarts don't re-ping.
+Alert state persists across restarts. Recovery notifications show when a check returns to normal. Only errors mention the configured Discord role.
 
-- `GET /status` — JSON snapshot of all check states
-- `GET /healthz` — plain 200 for external supervision
+## Local setup
 
-## Setup
+Use Node 24 and a local Supabase instance.
 
-Requires Node 24+ locally (native TypeScript), or just Docker on the VPS.
-
-```bash
-cp .env.example .env   # fill in values
+```sh
+cp .env.example .env
 npm install
-npm start              # local run
 ```
 
-`SUPABASE_DB_URL` must be the **direct connection / session pooler** string (port 5432) from the Supabase dashboard — the transaction pooler (6543) doesn't support pg_dump.
+Set the local Supabase credentials and any optional checks in `.env`, then start the Windows monitoring entry point.
 
-## Deploy on the VPS
-
-```bash
-git clone <this repo> && cd rotations-monitor
-cp .env.example .env   # fill in values
-docker compose up -d --build
-curl localhost:8080/status
+```sh
+npm start
 ```
 
-Update: `git pull && docker compose up -d --build`.
+The [Linux guide](docs/linux.md) covers its separate configuration and entry point.
 
-### Tailscale prerequisite
+## Status endpoints
 
-The Pi check needs the VPS on the same tailnet as the Pi (`100.99.1.41`). Until then leave `PI_HEALTH_ENABLED=false` — the check reports OK/disabled and nothing alerts.
+- `GET /status` returns the state of each check.
+- `GET /healthz` returns HTTP 200 for external supervision.
 
-### Pi `/health` endpoint
+## Deployment and backups
 
-The schedule-wake Flask app on the Pi exposes `GET /health` returning `{"ok": true, "pending_wakes": [<ISO timestamps>]}` built from `systemctl list-timers pc-wake-*`. With that in place, set `PI_HEALTH_ENABLED=true` here.
+Each mode has its own Docker Compose configuration and persistent state directory. Follow the guide for the ingestion setup you use.
 
-## Restoring a backup
+Both monitoring modes use `pg_dump` for backups and require a direct database connection or session pooler on port 5432. Configure retention with `BACKUP_RETENTION_DAYS`.
 
-```bash
-psql "$SUPABASE_DB_URL" -f data/backups/prod-schema-<ts>.sql   # structure (fresh project only)
-psql "$SUPABASE_DB_URL" -f data/backups/prod-data-<ts>.sql     # rows
-```
+See the [operations guide](docs/operations.md) for backup restore commands, watchdog checks, and deployment instructions.
 
-## Verifying the watchdog
+## Related projects
 
-1. Set the heartbeat row's `next_expected_at` to 30 min ago (Supabase table editor) → within a minute a yellow degradation embed arrives, followed by a red ping.
-2. Restore the row (or wait for the next real run) → recovery message.
-3. `docker compose restart` while in an alert state → no duplicate ping.
-
-## Related
-
-- Ingestion (writes the heartbeat): `mythic-shop-api` / rotations-ingestion
-- Frontend: [rotations-lol](https://github.com/zandonella/rotations-lol)
+- [Ingestion](https://github.com/zandonella/rotations-ingestion) collects the data this service monitors.
+- The [web app](https://github.com/zandonella/rotations-lol) displays the catalog and rotations.
