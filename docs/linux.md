@@ -1,96 +1,56 @@
-# Linux ingestion monitoring on the VPS
+# Linux ingestion monitoring
 
-The monitor stays on the existing cloud Linux VPS alongside the frontend.
-The ingestion host runs Riot Client and the collector, not a monitor daemon.
-The original `npm start`, `src/index.ts`, `.env`, and `docker-compose.yml` remain
-unchanged for the legacy Windows/Pi flow. Linux monitoring uses separate files.
+Run the monitor on a separate host from ingestion so it can detect ingestion-host outages. It reads operational status from Supabase and checks the public site. It needs no shared filesystem or inbound connection to the ingestion host.
 
-## Architecture
+## Checks
 
-```text
-Ingestion host                         Shared Supabase                 VPS
-hourly Linux runner  ------------> linux_ingestion_status <-------- Linux monitor
-Linux data processor    ------------> ingestion_heartbeat   <-------- Linux monitor
-                                                               site/data checks
-                                                               Discord + backups
+| Check | Behavior |
+|---|---|
+| Processing heartbeat | Checks every minute, reports heartbeat warnings and errors, and detects late ingestion. Default lateness thresholds are 5 minutes for a warning and 20 minutes for an error. |
+| Collection runner | Detects failed or interrupted collection and attempts running for more than 12 minutes. Recovery requires a successful completion. |
+| Email delivery | Detects failed or stuck batches and warns when successful ingestion has no following email completion after five minutes. |
+| Site and sales | Checks site availability and active-sale freshness every five minutes. |
+| Backups | Runs the configured daily database backup when enabled. |
+
+Alerts fire on status changes. Only errors mention the configured Discord role. State and backups persist under `data-linux/`. The Linux entry point does not check or call a wake scheduler.
+
+## Database requirements
+
+The collector and monitor use the same Supabase project. The ingestion repository provides the required migrations.
+
+- `linux/migrations/20261002000000_linux_ingestion_status.sql` adds the private runner status table.
+- `supabase/migrations/20261008000000_backend_email_batches.sql` adds the private email status and batching functions.
+
+The monitor reads `ingestion_heartbeat`, `linux_ingestion_status`, and `linux_email_status`. Operational tables require service role access and contain status information rather than Riot credentials.
+
+## Configuration and deployment
+
+Copy `.env.linux.example` to `.env.linux` and configure Supabase, the site URL, Discord, and the backup connection. For the hourly ingestion timer, use `LINUX_POLL_INTERVAL_MINUTES=60`.
+
+For a native process, run the following command.
+
+```sh
+npm run start:linux
 ```
 
-No shared filesystem, SSH polling, or new inbound endpoint on the ingestion
-host is required. If the host or its connection goes down, the last database
-signals stop advancing and the VPS detects the missed run.
+For Docker, keep `PORT=8080` in the container configuration and start the separate Compose service.
 
-The Linux monitor checks:
+```sh
+docker compose -f docker-compose.linux.yml up -d --build
+curl --fail http://127.0.0.1:8081/status
+```
 
-- Processing heartbeat every 60 seconds. Warn at more than 5 minutes past the
-  expected poll; error at more than 20 minutes. The deadline is capped at
-  60 minutes after the last run so a leftover daily deadline cannot hide failure.
-- Heartbeat `warn`/`error` immediately, even before its next expected deadline.
-- `linux_ingestion_status` every 60 seconds for exhausted retries, interrupted
-  jobs, or a running attempt older than 12 minutes. Recovery requires successful
-  completion; starting another attempt does not clear an earlier failed run.
-- Existing site uptime and active-sale freshness checks every five minutes.
-- Existing daily backups when enabled. The Linux entry point makes no Pi/WOL calls.
+Compose exposes the monitor on loopback port 8081 and persists `data-linux/`. When replacing a Windows monitor, stop that monitor first to avoid duplicate alerts and backups. Update any health-check proxy to use the selected monitor's port.
 
-Alerts/recoveries reuse the original Discord sender and state-change deduplication.
-Linux state/backups live under `data-linux/`, separately from the legacy monitor.
-`/healthz` is process liveness; `/status` contains ingestion health.
+`GET /healthz` reports process liveness. `GET /status` reports individual check results, including `heartbeat`, `linuxRunner`, `emails`, `siteUp`, and `freshness`.
 
-## Database contract
+## Local checks
 
-Apply the ingestion repository's Linux-only migration explicitly to the database
-used by both collector and VPS monitor:
-
-`linux/migrations/20261002000000_linux_ingestion_status.sql`
-
-This creates a service-role-only table (RLS enabled, no public policies) with one
-`runner_id = direct` row. The runner reports `running`, `ok`, `error`, or
-`interrupted`, attempt number, timestamp and previous terminal result. Only
-operational state is sent; Riot credentials and tokens are never included.
-The table has no OG-image dispatch trigger and does not alter the legacy heartbeat.
-
-The runner retains its local JSON/journal for debugging, but the monitor does not
-read those files. Status publication is bounded to five seconds and best-effort:
-if Supabase is unreachable, ingestion still runs and the VPS observes stale
-signals. An outage before the reporter starts is likewise detected by lateness.
-
-## Deployment on the existing VPS
-
-1. Apply the separate Linux status migration during the Linux production rollout.
-2. Copy `.env.linux.example` to `.env.linux` and use the same production Supabase
-   project, site, Discord destination and backup connection as the existing monitor.
-3. Select `npm run start:linux`, or use the separate compose file:
-   `docker compose -f docker-compose.linux.yml up -d --build`.
-4. Inspect `/status` and confirm `heartbeat`, `linuxRunner`, `siteUp`, and `freshness`.
-
-The Linux compose file publishes loopback port 8081 and stores state/backups under
-`data-linux/`; keep `PORT=8080` inside that container. Stop the legacy monitor when
-switching the production role, to avoid duplicate Discord alerts and backups.
-No changes to the VPS deployment have been made from the lab.
-
-## Testing without running a monitor on the ingestion host
-
-```bash
+```sh
 npm run test:linux
 npm run check:linux:local
 ```
 
-The second command makes one-shot checks of the sibling ingestion lab's guarded
-local Supabase and then exits. It starts no server, sends no Discord messages,
-and performs no backups. It verifies the same database contract that the VPS
-will read after deployment. The local Supabase setup helper applies the Linux
-status migration, including after a reset.
+The contract check reads the sibling ingestion checkout's `.env.local` and checks its loopback Supabase instance. It sends no Discord alerts, performs no backups, and exits after reporting the results. Start the local database using the ingestion repository's setup helper first.
 
-The previously installed `rotations-lab-monitor.service` has been stopped and
-disabled. Its installer and unit have been removed from this branch. The
-hourly ingestion timer and Riot Client service remain active.
-
-For the coordinated production cutover, follow the ingestion repository’s
-`docs/linux-production.md`. Pull both repositories after their Linux branches
-are merged into main; stop the old compose service before starting this one.
-The new host port is 8081, so update any existing health-check proxy accordingly.
-
-The hourly production flow runs at `:01` and uses
-`LINUX_POLL_INTERVAL_MINUTES=60`. The `emails` check reads private
-`linux_email_status` and the latest processing heartbeat. It reports failed or
-stuck email batches separately and warns if successful ingestion has no following
-email completion after five minutes. Apply the backend email migration first.
+See the [ingestion deployment guide](https://github.com/zandonella/rotations-ingestion/blob/main/docs/linux-production.md) for collector services and the [operations guide](operations.md) for backup and restore commands.
